@@ -1,0 +1,13 @@
+version: "2"
+services:
+  master:
+   build: master_server
+   ports: ["50051:50051"]
+  node1:
+   build: ./secondary_server
+   ports: ["50052:50052"]
+   command: --host node1 --port 50052
+  node2:
+   build: secondary_server
+   ports: ["50053:50053"]
+   command: --host node2 --port 50053
