@@ -3,6 +3,9 @@ from concurrent import futures
 from threading import Thread, Condition
 
 import math
+import logging
+
+from collections import OrderedDict
 
 import grpc
 
@@ -87,7 +90,9 @@ class GetServerRequest(ReplicatedLog_pb2_grpc.GetRequestServiceServicer):
     """
 
     def GetRequest(self, request, context):
-        msgs_list_txt = [v for k, v in logs.items()]
+        logging.debug("The server received a get request.\n")
+        sorted_logs = OrderedDict(sorted(logs.items()))
+        msgs_list_txt = [v for k, v in sorted_logs.items()]
         return ReplicatedLog_pb2.GETResponse(data=msgs_list_txt)
 
 
@@ -118,6 +123,7 @@ def check_quorum():
         active_nodes = [heartbeat_node(secondary_servers_hosts[i], secondary_servers_ports[i])
                         for i in range(len(secondary_servers_hosts))]
         quorum_state = sum(active_nodes) >= math.ceil(len(secondary_servers_ports)/2.0)
+        logging.debug(f"Quorum status is {quorum_state}.\n")
         time.sleep(0.5)
 
 
@@ -128,7 +134,7 @@ class HeartBeat(ReplicatedLog_pb2_grpc.AskHeartBeatsServiceServicer):
 
     def HeartBeatRequest(self, request, context):
         """
-        Check all slaves accessibility
+        Check all secondary node accessibility
         :return: array with addresses and array with heartbeats: 1-alive; 0-dead
         """
 
@@ -137,6 +143,8 @@ class HeartBeat(ReplicatedLog_pb2_grpc.AskHeartBeatsServiceServicer):
         for i in range(len(secondary_servers_ports)):
             address.append(f'{secondary_servers_hosts[i]}:{secondary_servers_ports[i]}')
             heartbeats.append(heartbeat_node(secondary_servers_hosts[i], secondary_servers_ports[i]))
+            logging.debug(f"Accessibility {secondary_servers_hosts[i]}:{secondary_servers_ports[i]} "
+                          f"node is {heartbeats[i]}")
         return ReplicatedLog_pb2.HeartBeats(address=address, heartbeats=heartbeats)
 
 
@@ -167,8 +175,10 @@ def serve():
     server.add_insecure_port("master:50051")
     server.start()
     server.wait_for_termination()
+    logging.info("Master node server master:50051 successfully launched!\n")
 
 
 if __name__ == "__main__":
     Thread(target=check_quorum).start()
+
     serve()
