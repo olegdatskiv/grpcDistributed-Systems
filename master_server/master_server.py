@@ -6,14 +6,19 @@ import math
 import logging
 
 from collections import OrderedDict
+from queue import Queue
 
 import grpc
 
 from master_grpc import ReplicatedLog_pb2_grpc, ReplicatedLog_pb2
 
 logs = {}
+queue_of_unsent_messages = Queue()
+
 secondary_servers_ports = [50052, 50053]
 secondary_servers_hosts = ['node1', 'node2']
+heartbeat_status = {"node1": True, "node2": True}
+
 message_id = 0
 
 waiting_parameter = 5.0
@@ -38,14 +43,12 @@ def post_secondary(host, port, msg, message_id, delay, latch):
         secondary_request = ReplicatedLog_pb2.POST(w=message_id, msg=msg)
         try:
             client.PostRequest(secondary_request)
+            logging.info(f"Server node {host}:{port} get {message_id} - {msg}.\n")
         except:
+            logging.info(f"Server node {host}:{port} not get {message_id} - {msg}. "
+                         f"Retry with {delays[delay]} delay\n")
             time.sleep(delays[delay])
             if delay == 4:
-                heartbeat_delay = 60
-                heartbeat = heartbeat_node(host, port)
-                while heartbeat == 0:
-                    time.sleep(heartbeat_delay)
-                    heartbeat = heartbeat_node(host, port)
                 delay -= 1
             post_secondary(host, port, msg, message_id, delay + 1, latch)
             return 0
@@ -53,10 +56,27 @@ def post_secondary(host, port, msg, message_id, delay, latch):
         return 1
 
 
+def resend_messages_from_queue():
+    while True:
+        while not queue_of_unsent_messages.empty():
+            element = queue_of_unsent_messages.get()
+            if not heartbeat_status[element[0]]:
+                queue_of_unsent_messages.put(element)
+            else:
+                delay = 0
+
+                thread = Thread(target=post_secondary, args=(element[0], element[1],
+                                                             element[3], element[2], delay, element[4]))
+                thread.start()
+
+                thread.join(waiting_parameter)
+
+
 class PostServerRequest(ReplicatedLog_pb2_grpc.PostRequestServiceServicer):
     """
     Post Logic Master
     """
+
     def PostRequest(self, request, context):
         global message_id, quorum_state
 
@@ -71,10 +91,16 @@ class PostServerRequest(ReplicatedLog_pb2_grpc.PostRequestServiceServicer):
         delay = 0
 
         for i in range(len(secondary_servers_ports)):
-            thread = Thread(target=post_secondary, args=(secondary_servers_hosts[i], secondary_servers_ports[i],
-                                                         request.msg, message_id, delay, latch))
-            thread.start()
-            threads.append(thread)
+            if not heartbeat_status[secondary_servers_hosts[i]]:
+                logging.debug(f"Server node {secondary_servers_hosts[i]}:{secondary_servers_ports[i]} "
+                              f"is not available. Save {message_id} - {request.msg} into queue.\n")
+                queue_of_unsent_messages.put((secondary_servers_hosts[i], secondary_servers_ports[i],
+                                              message_id, request.msg, latch))
+            else:
+                thread = Thread(target=post_secondary, args=(secondary_servers_hosts[i], secondary_servers_ports[i],
+                                                             request.msg, message_id, delay, latch))
+                thread.start()
+                threads.append(thread)
 
         latch.__await__()
         for thread in threads:
@@ -113,16 +139,25 @@ def heartbeat_node(secondary_host, secondary_port):
             return 0
 
 
-def check_quorum():
+def heartbeat_nodes_quorum_status():
     """
-    Check for quorum every 0.5sec, if system doesn't have quorum,
-    master goes to read-only mode
+    Check for quorum and nodes status heartbeat every 0.5sec,
+    if system doesn't have quorum, master goes to read-only mode
     """
+
     global quorum_state
     while True:
-        active_nodes = [heartbeat_node(secondary_servers_hosts[i], secondary_servers_ports[i])
-                        for i in range(len(secondary_servers_hosts))]
-        quorum_state = sum(active_nodes) >= math.ceil(len(secondary_servers_ports)/2.0)
+        active_nodes = []
+
+        for i in range(len(secondary_servers_hosts)):
+            status = heartbeat_node(secondary_servers_hosts[i], secondary_servers_ports[i])
+            active_nodes.append(status)
+            heartbeat_status[secondary_servers_hosts[i]] = status
+            logging.debug(f"Heartbeat status for {secondary_servers_hosts[i]}:{secondary_servers_ports[i]} "
+                          f"is {status}.\n")
+
+        quorum_state = sum(active_nodes) >= math.ceil(len(secondary_servers_ports) / 2.0)
+
         logging.debug(f"Quorum status is {quorum_state}.\n")
         time.sleep(0.5)
 
@@ -179,6 +214,6 @@ def serve():
 
 
 if __name__ == "__main__":
-    Thread(target=check_quorum).start()
-
+    Thread(target=heartbeat_nodes_quorum_status).start()
+    Thread(target=resend_messages_from_queue).start()
     serve()
