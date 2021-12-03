@@ -57,6 +57,11 @@ def post_secondary(host, port, msg, message_id, delay, latch):
 
 
 def resend_messages_from_queue():
+    """
+    Method for sand messages to secondary nodes from queue after servers start running
+    :return: 
+    """
+
     while True:
         while not queue_of_unsent_messages.empty():
             element = queue_of_unsent_messages.get()

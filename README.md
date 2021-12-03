@@ -8,4 +8,4 @@ In CMD run:
 
 In new CMD tab run client from your local venv
 
-` python client_main.py `
+` python client_node/client_log.py `
