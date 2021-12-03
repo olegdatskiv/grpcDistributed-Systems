@@ -2,14 +2,14 @@ import argparse
 import random
 import time
 from concurrent import futures
-from queue import Queue
+
+from collections import OrderedDict
 
 import grpc
 
 from secondary_grpc import ReplicatedLog_pb2_grpc, ReplicatedLog_pb2
 
 logs = {}
-q = Queue()
 
 
 def save_log(msg_id, msg):
@@ -35,7 +35,7 @@ class PostServerRequest(ReplicatedLog_pb2_grpc.PostRequestServiceServicer):
         if random.uniform(0, 1) < 0.5:
             sleep = random.randint(2, 8)  # realization of random latency
             time.sleep(sleep)
-        save_log(request.w, request.msg)
+        save_log(request.msg_id, request.msg)
         if random.uniform(0, 1) < 0.4:  # realization of random error
             raise Exception('InternalServerError')
         return ReplicatedLog_pb2.POSTResponse(msg='1')
@@ -49,7 +49,8 @@ class GetServerRequest(ReplicatedLog_pb2_grpc.GetRequestServiceServicer):
     def GetRequest(self, request, context):
         prev = 0
         msgs_list_txt = []
-        for k, v in logs.items():
+        sorted_logs = OrderedDict(sorted(logs.items()))
+        for k, v in sorted_logs.items():
             if k - prev <= 1:
                 prev = k
                 msgs_list_txt.append(v)

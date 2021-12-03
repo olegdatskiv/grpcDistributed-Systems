@@ -2,7 +2,7 @@ import random
 
 import grpc
 
-from client_node.client_grpc import ReplicatedLog_pb2_grpc, ReplicatedLog_pb2
+from client_grpc import ReplicatedLog_pb2_grpc, ReplicatedLog_pb2
 
 secondary_servers_ports = [50052, 50053]
 
@@ -31,6 +31,7 @@ def post():
     with grpc.insecure_channel(f'172.17.0.1:{master_port}') as channel:
         client = ReplicatedLog_pb2_grpc.PostRequestServiceStub(channel)
         messages = generate_messages()
+        # messages = [(1, "9 message")]
         for msg in messages:
             request = ReplicatedLog_pb2.POST(w=msg[0], msg=msg[1])
             response = client.PostRequest(request)

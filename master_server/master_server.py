@@ -2,6 +2,8 @@ import time
 from concurrent import futures
 from threading import Thread, Condition
 
+import math
+
 import grpc
 
 from master_grpc import ReplicatedLog_pb2_grpc, ReplicatedLog_pb2
@@ -14,7 +16,6 @@ message_id = 0
 waiting_parameter = 5.0
 delays = [0.5, 1, 5, 10, 20]
 
-quorum = 2
 quorum_state = False
 
 
@@ -107,17 +108,16 @@ def heartbeat_node(secondary_host, secondary_port):
             return 0
 
 
-def check_quorum(n):
+def check_quorum():
     """
     Check for quorum every 0.5sec, if system doesn't have quorum,
     master goes to read-only mode
-    :param n: int quorum
     """
     global quorum_state
     while True:
         active_nodes = [heartbeat_node(secondary_servers_hosts[i], secondary_servers_ports[i])
                         for i in range(len(secondary_servers_hosts))]
-        quorum_state = sum(active_nodes) >= n
+        quorum_state = sum(active_nodes) >= math.ceil(len(secondary_servers_ports)/2.0)
         time.sleep(0.5)
 
 
@@ -170,5 +170,5 @@ def serve():
 
 
 if __name__ == "__main__":
-    Thread(target=check_quorum, args=(quorum,)).start()
+    Thread(target=check_quorum).start()
     serve()
