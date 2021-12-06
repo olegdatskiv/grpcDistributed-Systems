@@ -21,7 +21,6 @@ heartbeat_status = {"node1": True, "node2": True}
 
 message_id = 0
 
-waiting_parameter = 5.0
 delays = [0.5, 1, 5, 10, 20]
 
 quorum_state = False
@@ -59,7 +58,7 @@ def post_secondary(host, port, msg, message_id, delay, latch):
 def resend_messages_from_queue():
     """
     Method for sand messages to secondary nodes from queue after servers start running
-    :return: 
+    :return:
     """
 
     while True:
@@ -73,8 +72,6 @@ def resend_messages_from_queue():
                 thread = Thread(target=post_secondary, args=(element[0], element[1],
                                                              element[3], element[2], delay, element[4]))
                 thread.start()
-
-                thread.join(waiting_parameter)
 
 
 class PostServerRequest(ReplicatedLog_pb2_grpc.PostRequestServiceServicer):
@@ -91,7 +88,6 @@ class PostServerRequest(ReplicatedLog_pb2_grpc.PostRequestServiceServicer):
 
         message_id += 1
         logs[message_id] = request.msg
-        threads = []
         latch = CountDownLatch(request.w - 1)
         delay = 0
 
@@ -105,11 +101,8 @@ class PostServerRequest(ReplicatedLog_pb2_grpc.PostRequestServiceServicer):
                 thread = Thread(target=post_secondary, args=(secondary_servers_hosts[i], secondary_servers_ports[i],
                                                              request.msg, message_id, delay, latch))
                 thread.start()
-                threads.append(thread)
 
         latch.__await__()
-        for thread in threads:
-            thread.join(waiting_parameter)
 
         return ReplicatedLog_pb2.POSTResponse(msg=f'Master and Secondaries servers have '
                                                   f'received msg={request.msg}, w={request.w}')
@@ -139,9 +132,10 @@ def heartbeat_node(secondary_host, secondary_port):
         client = ReplicatedLog_pb2_grpc.AskHeartBeatServiceStub(channel)
         request_to_node = ReplicatedLog_pb2.AskHeartBeat()
         try:
-            return client.HeartBeatRequest(request_to_node).heartbeat
+            status = client.HeartBeatRequest(request_to_node).heartbeat
+            heartbeat_status[secondary_host] = status
         except:
-            return 0
+            heartbeat_status[secondary_host] = 0
 
 
 def heartbeat_nodes_quorum_status():
@@ -154,12 +148,19 @@ def heartbeat_nodes_quorum_status():
     while True:
         active_nodes = []
 
+        threads = []
+
         for i in range(len(secondary_servers_hosts)):
-            status = heartbeat_node(secondary_servers_hosts[i], secondary_servers_ports[i])
-            active_nodes.append(status)
-            heartbeat_status[secondary_servers_hosts[i]] = status
-            logging.debug(f"Heartbeat status for {secondary_servers_hosts[i]}:{secondary_servers_ports[i]} "
-                          f"is {status}.\n")
+            thread = Thread(target=heartbeat_node, args=(secondary_servers_hosts[i], secondary_servers_ports[i]))
+            thread.start()
+            threads.append(thread)
+
+        for thread in threads:
+            thread.join()
+
+        for k, v in heartbeat_status.items():
+            active_nodes.append(v)
+            logging.debug(f"Heartbeat status for {k} is {v}.\n")
 
         quorum_state = sum(active_nodes) >= math.ceil(len(secondary_servers_ports) / 2.0)
 
@@ -180,11 +181,22 @@ class HeartBeat(ReplicatedLog_pb2_grpc.AskHeartBeatsServiceServicer):
 
         heartbeats = []
         address = []
+        threads = []
+
+        for i in range(len(secondary_servers_ports)):
+            thread = Thread(target=heartbeat_node, args=(secondary_servers_hosts[i], secondary_servers_ports[i]))
+            thread.start()
+            threads.append(thread)
+
+        for thread in threads:
+            thread.join()
+
         for i in range(len(secondary_servers_ports)):
             address.append(f'{secondary_servers_hosts[i]}:{secondary_servers_ports[i]}')
-            heartbeats.append(heartbeat_node(secondary_servers_hosts[i], secondary_servers_ports[i]))
+            heartbeats.append(heartbeat_status[secondary_servers_hosts[i]])
             logging.debug(f"Accessibility {secondary_servers_hosts[i]}:{secondary_servers_ports[i]} "
                           f"node is {heartbeats[i]}")
+
         return ReplicatedLog_pb2.HeartBeats(address=address, heartbeats=heartbeats)
 
 
