@@ -30,8 +30,7 @@ def generate_messages():
 def post():
     with grpc.insecure_channel(f'172.17.0.1:{master_port}') as channel:
         client = ReplicatedLog_pb2_grpc.PostRequestServiceStub(channel)
-        # messages = generate_messages()
-        messages = [(3, "8 message")]
+        messages = [(1, "5 message")]
         for msg in messages:
             request = ReplicatedLog_pb2.POST(w=msg[0], msg=msg[1])
             response = client.PostRequest(request)

@@ -155,8 +155,10 @@ def heartbeat_nodes_quorum_status():
             thread.start()
             threads.append(thread)
 
+        waiting_parameter = 5
+
         for thread in threads:
-            thread.join()
+            thread.join(waiting_parameter)
 
         for k, v in heartbeat_status.items():
             active_nodes.append(v)
@@ -188,8 +190,10 @@ class HeartBeat(ReplicatedLog_pb2_grpc.AskHeartBeatsServiceServicer):
             thread.start()
             threads.append(thread)
 
+        waiting_parameter = 5
+
         for thread in threads:
-            thread.join()
+            thread.join(waiting_parameter)
 
         for i in range(len(secondary_servers_ports)):
             address.append(f'{secondary_servers_hosts[i]}:{secondary_servers_ports[i]}')
@@ -231,6 +235,8 @@ def serve():
 
 
 if __name__ == "__main__":
+    logging.basicConfig()
+    logging.getLogger().setLevel(logging.DEBUG)
     Thread(target=heartbeat_nodes_quorum_status).start()
     Thread(target=resend_messages_from_queue).start()
     serve()
